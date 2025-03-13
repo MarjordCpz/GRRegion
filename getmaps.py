@@ -1,18 +1,20 @@
 import argparse
 import omni
 import json
+import os
 from isaacsim import SimulationApp
-simulation_app = SimulationApp({"headless": False})
-
+simulation_app = SimulationApp({"headless": True})
+os.environ['CUDA_VISIBLE_DEVICES'] = '4, 5, 6'
 from pxr import Usd, UsdGeom,UsdLux
 import numpy as np
 import open3d as o3d
-import os
+import cv2
+
 import sys
 from urllib.parse import quote
-from usd_utils import remove_empty_prims, recursive_parse_new, get_mesh_from_points_and_faces, sample_points_from_mesh, sample_points_from_prim
-from usd_utils import fix_mdls
-from usd_utils import IsEmpty, IsObjXform
+from scene_utils.usd_utils import remove_empty_prims, recursive_parse_new, get_mesh_from_points_and_faces, sample_points_from_mesh, sample_points_from_prim
+from scene_utils.usd_utils import fix_mdls
+from scene_utils.usd_utils import IsEmpty, IsObjXform
 
 from omni.isaac.sensor import Camera
 from omni.isaac.core import World
@@ -20,14 +22,23 @@ from omni.isaac.core import World
 from omni.isaac.core.utils.stage import open_stage
 from omni.isaac.core.utils.stage import add_reference_to_stage
 import omni.isaac.core.utils.numpy.rotations as rot_utils
-from utils.usd_utils import filter_free_noise, strip_world_prim
-from utils.geometry_tools import extract_floor_heights, fix_floorheight, generate_intrinsic
+from omni.isaac.core.utils.prims import delete_prim, create_prim
+from scipy.spatial.transform import Rotation as R
+from scipy.spatial.distance import cdist
+from scene_utils.usd_utils import filter_free_noise, strip_world_prim, enumerate_lights
+from scene_utils.geometry_tools import extract_floor_heights, fix_floorheight, generate_intrinsic, build_transformation_mat
 
 
 # turn on the camera light
 action_registry = omni.kit.actions.core.get_action_registry()
 action = action_registry.get_action("omni.kit.viewport.menubar.lighting", "set_lighting_mode_camera")
 action.execute()
+
+# omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/enabled', value=True)
+# omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/whiteScale', value=4.5)
+# omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/minEV', value=500.0)
+
+
 
 
 def find_path(dir, endswith):
@@ -72,23 +83,61 @@ def convert_usd_to_points(stage, meters_per_unit, json_data, use_json_data=True)
     scene_pcd = scene_pcd.voxel_down_sample(0.05)
     return scene_pcd, prims_all
 
+def get_best_resoluiton(floor_width, floor_height, meters_per_unit):
+    if meters_per_unit != 0.001:
+        meters_per_unit =0.001
+    floor_width_mm = floor_width / meters_per_unit
+    floor_height_mm = floor_height / meters_per_unit
+    downsample_scale = 0.1
+    width = np.floor(np.floor(floor_width_mm) * downsample_scale)
+    height = np.floor(np.floor(floor_height_mm) * downsample_scale)
+    return (int(width), int(height))
+
+
+def compute_camera_quaternion(camera_position, target_position, up_vector=np.array([0, 0, 1])):
+    forward_vector = np.array(target_position) - np.array(camera_position)
+    forward_vector = forward_vector / np.linalg.norm(forward_vector)  
+    # default_forward = np.array([0, 0, 1])
+    right_vector = np.cross(up_vector, forward_vector)
+    right_vector = right_vector / np.linalg.norm(right_vector)
+    corrected_up_vector = np.cross(forward_vector, right_vector)
+    corrected_up_vector = corrected_up_vector / np.linalg.norm(corrected_up_vector)
+    rotation_matrix = np.stack([right_vector, corrected_up_vector, forward_vector], axis=1)
+    quaternion = R.from_matrix(rotation_matrix).as_quat()
+    return np.array([quaternion[3], quaternion[0], quaternion[1], quaternion[2]])
+
+def find_nearest_points_distance_away(points, distance):
+
+    dist_matrix = cdist(points, points)
+    nearest_points_away_indices = np.full(dist_matrix.shape[0], -1)
+
+
+    for i in range(dist_matrix.shape[0]):
+        valid_indices = np.where(dist_matrix[i] > distance)[0]
+        if len(valid_indices) > 0:
+            nearest_index = valid_indices[np.argmin(dist_matrix[i][valid_indices])]
+            nearest_points_away_indices[i] = nearest_index
+
+    nearest_points_coordinates = points[nearest_points_away_indices]
+    return nearest_points_coordinates
+
 
 
 # data path
-data_path = ''
-output_path = ''
-mdl_path = ''
+data_path = '/home/caopeizhou/projects/NavDataGenerator/GRGenerator/data/part2/110_usd'
+output_path = '/home/caopeizhou/projects/NavDataGenerator/GRRegion/output'
+mdl_path = '/home/caopeizhou/projects/NavDataGenerator/GRGenerator/mdls/default.mdl'
 
 all_list = sorted(os.listdir(data_path))
 loop_list = all_list
 
 for house_id in loop_list:
-    # if house_id != '0050':
-    #     continue
+    if house_id != '0005':
+        continue
     # if house_id not in test_list:
     #     continue
     print(house_id)
-    if not os.path.exists("%s/%s"%(data_path,house_id)):
+    if not os.path.exists("%s/%s"%(output_path, house_id)):
         usd_path = find_path(os.path.join(data_path, house_id), endswith='.usd')
         usd_file_name = os.path.split(usd_path)[-1].replace(".usd", "")
         json_path = find_path(os.path.join(data_path, house_id), endswith='.json')
@@ -104,6 +153,7 @@ for house_id in loop_list:
         stage = omni.usd.get_context().get_stage()
         meters_per_unit = Usd.Stage.Open(usd_path).GetMetadata('metersPerUnit')
         print(meters_per_unit)
+        enumerate_lights(stage)
         scene_pcd_without_labeled_noise, prims_all = convert_usd_to_points(stage, meters_per_unit, json_data, False)
         scene_pcd_without_xy_free_noise = filter_free_noise(scene_pcd_without_labeled_noise)    
         scene_pcd_without_free_noise = filter_free_noise(scene_pcd_without_xy_free_noise)     
@@ -111,23 +161,36 @@ for house_id in loop_list:
         points = np.array(scene_pcd.points)
         floor_heights = extract_floor_heights(points)
         # initialize the camera function
-        camera = Camera(
+        camera_bev = Camera(
             prim_path="/World/camera",
             position=np.array([0,0,0]),
             dt=0.05,
             resolution=(1280, 720),
-            orientation=rot_utils.euler_angles_to_quats(np.array([0.0, 0.0, 90.0]),degrees=True))
-        camera.set_focal_length(1.4)
-        camera.set_focus_distance(0.205)
-        camera.set_clipping_range(0.01,10000000)
-        world.reset()
-        camera.initialize()
-        camera.add_motion_vectors_to_frame()
-        camera.add_distance_to_image_plane_to_frame()
-        for i in range(30):
-            world.step(render=True)
+            orientation=rot_utils.euler_angles_to_quats(np.array([0.0, 90.0, 90.0]), degrees=True))  # YXZ
+        
+        camera_sample = Camera(
+            prim_path = "/World/camera_sample",
+            position=np.array([0,0,0]),
+            dt=0.05,
+            resolution=(1280, 720),
+            orientation=rot_utils.euler_angles_to_quats(np.array([0.0, 0.0, 90.0]), degrees=True)        
+        )
 
-        ceiling_height = 2.5
+        camera_bev.set_focal_length(1.4)
+        camera_bev.set_focus_distance(0.205)
+        camera_bev.set_clipping_range(0.01,10000000)
+        world.reset()
+        camera_bev.initialize()
+        camera_bev.add_motion_vectors_to_frame()
+        camera_bev.add_distance_to_image_plane_to_frame()
+        # for i in range(30):
+        #     world.step(render=True)
+        camera_sample.set_focal_length(1.4)
+        camera_sample.set_clipping_range(0.001, 10000000)
+        camera_sample.initialize()
+        camera_sample.add_distance_to_image_plane_to_frame()
+
+        camera_height = 1.8
         for floor_index,current_floor in enumerate(floor_heights):
 
             current_floor = current_floor[0]
@@ -136,7 +199,95 @@ for house_id in loop_list:
             floor_lower_bound = current_floor - 0.1
             floor_points = points[np.where((points[:,2]<floor_upper_bound) & (points[:,2]>floor_lower_bound))]
             floor_xy = floor_points[:,:2]
+            floor_pcd = o3d.geometry.PointCloud()
+            floor_pcd.points = o3d.utility.Vector3dVector(floor_points)
+
             floor_x_max, floor_x_min = np.max(floor_xy[:,0]), np.min(floor_xy[:,0])
             floor_y_max, floor_y_min = np.max(floor_xy[:,1]), np.min(floor_xy[:,1])
-            camera_intrinsics = generate_intrinsic(1280, 720, 90, 90)
+            floor_x_center = (floor_x_max + floor_x_min) / 2
+            floor_y_center = (floor_y_max + floor_y_min) / 2
+            floor_width = floor_x_max - floor_x_min
+            floor_height = floor_y_max - floor_y_min
+            
+            # BEV camera setting
+            camera_bev.set_projection_mode("orthographic")
+            camera_bev.set_horizontal_aperture(floor_width / meters_per_unit * 1.1)
+            width, height = get_best_resoluiton(floor_width, floor_height, meters_per_unit)
+            camera_bev.set_resolution((width, height))
+            # BEV camera position
+            bev_camera_translation = np.array([floor_x_center, floor_y_center, current_floor + camera_height])
+            bev_camera_rotation = [0, 0, 0]
+            bev_camera_extrinsic = build_transformation_mat(bev_camera_translation, bev_camera_rotation)
+            bev_camera_pos = bev_camera_extrinsic[0:3,3]/meters_per_unit
+            bev_camera_rot = bev_camera_extrinsic[0:3,0:3]
+            camera_bev.set_world_pose(bev_camera_pos)
+            for i in range(15):
+                world.step(render=True)
+
+            rgb_bev = cv2.cvtColor(camera_bev.get_rgba()[:,:,:3],cv2.COLOR_BGR2RGB)
+            
+            os.makedirs("%s/%s/"%(output_path, house_id), exist_ok=True)
+            os.makedirs("%s/%s/bevmap/"%(output_path, house_id), exist_ok=True)
+            cv2.imwrite(os.path.join(output_path, house_id, 'bevmap/', f"bev_map_{floor_index}.jpg"), rgb_bev)
+            o3d.io.write_point_cloud(os.path.join(output_path, house_id, "bevmap", f"bevmap_{floor_index}.ply"), floor_pcd)
+
+
+            # sample camera setting
+            # sample camera position
+            downsampled_floor_pcd = floor_pcd.voxel_down_sample(2)
+            render_sample_points_xy = np.array(downsampled_floor_pcd.points)[:, :2]
+            target_points_xy = find_nearest_points_distance_away(render_sample_points_xy, distance=1.8)
+            render_sample_points = np.concatenate((render_sample_points_xy, np.ones((render_sample_points_xy.shape[0], 1)) * bev_camera_translation[2]), axis=-1)
+            target_points = np.concatenate((target_points_xy, np.ones((target_points_xy.shape[0], 1)) * current_floor), axis=-1)
+            camera_rotations = []
+            delta = 45.0 
+            iter_number = 360.0 / delta
+            base_rotation = np.array([45.0, 0.0, 0.0])
+            for i in range(int(iter_number)):
+                rotation = base_rotation.copy()
+                rotation[2] = base_rotation[2] + i * delta
+                # camera_rotations.append(rotation)
+                print(rotation)
+                camera_ext = build_transformation_mat(np.array([0, 0, 0]), rotation)
+                camera_rot = camera_ext[0:3,0:3]
+                camera_euler_angles = rot_utils.rot_matrices_to_quats(camera_rot)
+                camera_euler_angles = rot_utils.quats_to_euler_angles(camera_euler_angles)
+                camera_euler_angles[0],camera_euler_angles[1],camera_euler_angles[2] = camera_euler_angles[1],np.clip((np.pi/2 - camera_euler_angles[0])/2.0,0,np.pi/8),camera_euler_angles[2]+np.pi/2
+                camera_rotations.append(camera_euler_angles)
+
+            os.makedirs("%s/%s/regions/"%(output_path, house_id), exist_ok=True)
+
+            for idx, render_point in enumerate(render_sample_points):
+                os.makedirs("%s/%s/regions/sample_%d"%(output_path, house_id, idx), exist_ok=True)
+                print(f"smaple idx {idx}")
+                camera_pos = render_point / meters_per_unit
+                for rot_idx, camera_rotation in enumerate(camera_rotations):
+                    print(rot_idx, camera_rotation)
+                # orient = compute_camera_quaternion(target_points[idx], render_point)
+                # print(target_points[idx], render_point)
+                    camera_sample.set_world_pose(camera_pos, rot_utils.euler_angles_to_quats(camera_rotation))
+                    for i in range(12):
+                        world.step(render=True)
+                    render_rgb = cv2.cvtColor(camera_sample.get_rgba()[:,:,:3], cv2.COLOR_BGR2RGB)
+                    cv2.imwrite(os.path.join(output_path, house_id, f"regions/sample_{idx}/render_{rot_idx}.jpg"), render_rgb)
+                 
+
+
+
+            # camera_position = []
+            # for pt,rt in zip(render_sample_points, wayrotations):
+            #     camera_trajectory.append(build_transformation_mat(pt, rt).tolist())
+            # camera_trajectory = np.array(camera_trajectory)
+
+
+            
+            
+
+
+
+
+
+
+        delete_prim("/World/scene")
+
 
