@@ -94,39 +94,10 @@ def get_best_resoluiton(floor_width, floor_height, meters_per_unit):
     return (int(width), int(height))
 
 
-def compute_camera_quaternion(camera_position, target_position, up_vector=np.array([0, 0, 1])):
-    forward_vector = np.array(target_position) - np.array(camera_position)
-    forward_vector = forward_vector / np.linalg.norm(forward_vector)  
-    # default_forward = np.array([0, 0, 1])
-    right_vector = np.cross(up_vector, forward_vector)
-    right_vector = right_vector / np.linalg.norm(right_vector)
-    corrected_up_vector = np.cross(forward_vector, right_vector)
-    corrected_up_vector = corrected_up_vector / np.linalg.norm(corrected_up_vector)
-    rotation_matrix = np.stack([right_vector, corrected_up_vector, forward_vector], axis=1)
-    quaternion = R.from_matrix(rotation_matrix).as_quat()
-    return np.array([quaternion[3], quaternion[0], quaternion[1], quaternion[2]])
-
-def find_nearest_points_distance_away(points, distance):
-
-    dist_matrix = cdist(points, points)
-    nearest_points_away_indices = np.full(dist_matrix.shape[0], -1)
-
-
-    for i in range(dist_matrix.shape[0]):
-        valid_indices = np.where(dist_matrix[i] > distance)[0]
-        if len(valid_indices) > 0:
-            nearest_index = valid_indices[np.argmin(dist_matrix[i][valid_indices])]
-            nearest_points_away_indices[i] = nearest_index
-
-    nearest_points_coordinates = points[nearest_points_away_indices]
-    return nearest_points_coordinates
-
-
-
 # data path
 data_path = '/home/caopeizhou/projects/NavDataGenerator/GRGenerator/data/part2/110_usd'
 output_path = '/home/caopeizhou/projects/NavDataGenerator/GRRegion/output'
-mdl_path = '/home/caopeizhou/projects/NavDataGenerator/GRGenerator/mdls/default.mdl'
+mdl_path = '/home/caopeizhou/projects/NavDataGenerator/GRRegion/mdls/default.mdl'
 
 all_list = sorted(os.listdir(data_path))
 loop_list = all_list
@@ -245,9 +216,7 @@ for house_id in loop_list:
             # sample camera position
             downsampled_floor_pcd = floor_pcd.voxel_down_sample(2)
             render_sample_points_xy = np.array(downsampled_floor_pcd.points)[:, :2]
-            target_points_xy = find_nearest_points_distance_away(render_sample_points_xy, distance=1.8)
             render_sample_points = np.concatenate((render_sample_points_xy, np.ones((render_sample_points_xy.shape[0], 1)) * bev_camera_translation[2]), axis=-1)
-            target_points = np.concatenate((target_points_xy, np.ones((target_points_xy.shape[0], 1)) * current_floor), axis=-1)
             camera_rotations = []
             delta = 45.0 
             iter_number = 360.0 / delta
@@ -279,23 +248,6 @@ for house_id in loop_list:
                         world.step(render=True)
                     render_rgb = cv2.cvtColor(camera_sample.get_rgba()[:,:,:3], cv2.COLOR_BGR2RGB)
                     cv2.imwrite(os.path.join(output_path, house_id, f"regions/sample_{idx}/render_{rot_idx}.jpg"), render_rgb)
-                 
-
-
-
-            # camera_position = []
-            # for pt,rt in zip(render_sample_points, wayrotations):
-            #     camera_trajectory.append(build_transformation_mat(pt, rt).tolist())
-            # camera_trajectory = np.array(camera_trajectory)
-
-
-            
-            
-
-
-
-
-
 
         delete_prim("/World/scene")
 
