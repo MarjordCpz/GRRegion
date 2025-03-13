@@ -211,7 +211,8 @@ for house_id in loop_list:
             
             # BEV camera setting
             camera_bev.set_projection_mode("orthographic")
-            camera_bev.set_horizontal_aperture(floor_width / meters_per_unit * 1.1)
+            scale = 1.0
+            camera_bev.set_horizontal_aperture(floor_width / meters_per_unit * scale)
             width, height = get_best_resoluiton(floor_width, floor_height, meters_per_unit)
             camera_bev.set_resolution((width, height))
             # BEV camera position
@@ -233,6 +234,14 @@ for house_id in loop_list:
 
 
             # sample camera setting
+            # turn on the camera light
+            action_registry = omni.kit.actions.core.get_action_registry()
+            action = action_registry.get_action("omni.kit.viewport.menubar.lighting", "set_lighting_mode_stage")
+            action.execute()
+
+            omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/enabled', value=True)
+            omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/whiteScale', value=4.5)
+
             # sample camera position
             downsampled_floor_pcd = floor_pcd.voxel_down_sample(2)
             render_sample_points_xy = np.array(downsampled_floor_pcd.points)[:, :2]
