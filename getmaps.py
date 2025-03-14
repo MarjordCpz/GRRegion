@@ -121,14 +121,13 @@ data_path = os.path.join(args.data_path, part_folder, usd_folder)
 output_path = os.path.join(args.output_dir, part_folder, usd_folder)
 # if args.scene_end_index > len(os.listdir(data_path)):
 #     args.scene_end_index = len(os.listdir(data_path))
-# house_ids = sorted(os.listdir(data_path))[args.scene_start_index:args.scene_end_index]
+house_id = sorted(os.listdir(data_path))[args.scene_id]
 if not os.path.exists(output_path):
     os.makedirs(output_path, exist_ok=True)
 
 mdl_path = args.mdl_path
 # for house_id in house_ids:
     # print(house_id)
-house_id = args.scene_id
 if not os.path.exists("%s/%s"%(output_path, house_id)):
     usd_path = find_path(os.path.join(data_path, house_id), endswith='.usd')
     usd_file_name = os.path.split(usd_path)[-1].replace(".usd", "")
@@ -183,7 +182,7 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
     camera_sample.add_distance_to_image_plane_to_frame()
 
     camera_height = 1.8
-    for floor_index,current_floor in enumerate(floor_heights):
+    for floor_index, current_floor in enumerate(floor_heights):
 
         current_floor = current_floor[0]
         current_floor = fix_floorheight(current_floor, prims_all, meters_per_unit)
@@ -255,10 +254,11 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
             camera_rotations.append(camera_euler_angles)
 
         os.makedirs("%s/%s/regions/"%(output_path, house_id), exist_ok=True)
-
+        sample_points = []
         for idx, render_point in enumerate(render_sample_points):
             os.makedirs("%s/%s/regions/sample_%d"%(output_path, house_id, idx), exist_ok=False)
-            print(f"smaple idx {idx}")
+            print(f"sample idx {idx}")
+            sample_points.append(render_point.tolist())
             camera_pos = render_point / meters_per_unit
             for rot_idx, camera_rotation in enumerate(camera_rotations):
                 print(rot_idx, camera_rotation)
@@ -269,7 +269,10 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
                     world.step(render=True)
                 render_rgb = cv2.cvtColor(camera_sample.get_rgba()[:,:,:3], cv2.COLOR_BGR2RGB)
                 cv2.imwrite(os.path.join(output_path, house_id, f"regions/sample_{idx}/render_{rot_idx}.jpg"), render_rgb)
-
+        save_dict = {"sample_points": sample_points, "bev_camera_translation": bev_camera_translation.tolist()}
+        json_object = json.dumps(save_dict, indent=4)
+        with open("%s/%s/camera_info_%d.json"%(output_path, house_id, floor_index), "w") as outfile:
+                outfile.write(json_object)
         # delete_prim("/World/scene")
 
 
