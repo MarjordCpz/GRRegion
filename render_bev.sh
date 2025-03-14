@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=12     
 #SBATCH --time=14-00:00:00    
 #SBATCH --array=0-3
-#SBATCH --output=/ailab/user/caopeizhou/projects/GRRegion/logs/117/%j.out       
-#SBATCH --error=/ailab/user/caopeizhou/projects/GRRegion/logs/117/%j.err 
+#SBATCH --output=/ailab/user/caopeizhou/projects/GRRegion/logs/one_scene_render/119/%j.out       
+#SBATCH --error=/ailab/user/caopeizhou/projects/GRRegion/logs/one_scene_render/119/%j.err 
 
 
 if [ $# -ne 2 ]; then
@@ -26,9 +26,9 @@ end_id=$(((task_id+1)*25))
 echo ${start_id}
 echo ${end_id}
 
-for ((i = start_index; i < end_index; i += 1)); do
+for ((i = start_id; i < end_id; i += 1)); do
     /ailab/user/caopeizhou/apps/isaac-sim-4.1.0/python.sh getmaps.py \
-        --scene_id $((i)) \
+        --scene_id $i \
         --part $part_index \
         --usd_folder $usd_fodler
     wait
