@@ -107,6 +107,21 @@ def enumerate_lights(stage):
             UsdGeom.Imageable(prim).MakeVisible()
 
 
+def turnoff_original_lights(stage):
+    light_types = [
+        "DistantLight",
+        "SphereLight",
+        "DiskLight",
+        "RectLight",
+        "CylinderLight"
+    ]
+
+    for prim in stage.Traverse():
+        prim_type_name = prim.GetTypeName()
+        if prim_type_name in light_types:
+            UsdGeom.Imageable(prim).MakeInvisible()
+
+
 def find_ceiling_like_prims(prims, ceiling_height, meters_per_unit):
     ceiling_height = round(ceiling_height, 5)
     ceiling_like_prims = []
