@@ -24,8 +24,15 @@ import omni.isaac.core.utils.numpy.rotations as rot_utils
 from omni.isaac.core.utils.prims import delete_prim, create_prim
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.distance import cdist
-from scene_utils.usd_utils import filter_free_noise, strip_world_prim, enumerate_lights
+from math import ceil
+from scene_utils.usd_utils import filter_free_noise, strip_world_prim, enumerate_lights, turnoff_original_lights
 from scene_utils.geometry_tools import extract_floor_heights, fix_floorheight, generate_intrinsic, build_transformation_mat
+# turn on the camera light
+# import omni.kit.actions.core
+# action_registry = omni.kit.actions.core.get_action_registry()
+# action = action_registry.get_action("omni.kit.viewport.menubar.lighting", "set_lighting_mode_camera")
+# action.execute()
+
 
 
 parser = argparse.ArgumentParser()
@@ -43,13 +50,10 @@ args = parser.parse_known_args()[0]
 
 
 
-# turn on the camera light
-action_registry = omni.kit.actions.core.get_action_registry()
-action = action_registry.get_action("omni.kit.viewport.menubar.lighting", "set_lighting_mode_camera")
-action.execute()
+
 
 # omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/enabled', value=True)
-# omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/whiteScale', value=4.5)
+# omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/whiteScale', value=8.5)
 # omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/minEV', value=500.0)
 
 
@@ -99,7 +103,7 @@ def convert_usd_to_points(stage, meters_per_unit, json_data, use_json_data=True)
 
 def get_best_resoluiton(floor_width, floor_height, meters_per_unit):
     if meters_per_unit != 0.001:
-        meters_per_unit =0.001
+        meters_per_unit = 0.001
     floor_width_mm = floor_width / meters_per_unit
     floor_height_mm = floor_height / meters_per_unit
     downsample_scale = 0.1
@@ -127,7 +131,7 @@ if not os.path.exists(output_path):
 
 mdl_path = args.mdl_path
 # for house_id in house_ids:
-    # print(house_id)
+print(house_id)
 if not os.path.exists("%s/%s"%(output_path, house_id)):
     usd_path = find_path(os.path.join(data_path, house_id), endswith='.usd')
     usd_file_name = os.path.split(usd_path)[-1].replace(".usd", "")
@@ -138,13 +142,14 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
         with open(json_path, 'r') as f:
             json_data = json.load(f)
     print(usd_path)
-    world = World(physics_dt=0.01, rendering_dt=0.01, stage_units_in_meters=1.0)
+    world = World(stage_units_in_meters=1.0)
     fix_mdls(usd_path, mdl_path)
     add_reference_to_stage(usd_path, "/World/scene")
     stage = omni.usd.get_context().get_stage()
     meters_per_unit = Usd.Stage.Open(usd_path).GetMetadata('metersPerUnit')
     print(meters_per_unit)
     enumerate_lights(stage)
+    # turnoff_original_lights(stage)
     scene_pcd_without_labeled_noise, prims_all = convert_usd_to_points(stage, meters_per_unit, json_data, False)
     scene_pcd_without_xy_free_noise = filter_free_noise(scene_pcd_without_labeled_noise)    
     scene_pcd_without_free_noise = filter_free_noise(scene_pcd_without_xy_free_noise)     
@@ -155,7 +160,7 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
     camera_bev = Camera(
         prim_path="/World/camera",
         position=np.array([0,0,0]),
-        dt=0.05,
+        # dt=0.05,
         resolution=(1280, 720),
         orientation=rot_utils.euler_angles_to_quats(np.array([0.0, 90.0, 90.0]), degrees=True))  # YXZ
     
@@ -163,20 +168,20 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
         prim_path = "/World/camera_sample",
         position=np.array([0,0,0]),
         dt=0.05,
-        resolution=(1280, 720),
+        resolution=(800, 600),
         orientation=rot_utils.euler_angles_to_quats(np.array([0.0, 0.0, 90.0]), degrees=True)        
     )
 
-    camera_bev.set_focal_length(1.4)
-    camera_bev.set_focus_distance(0.205)
-    camera_bev.set_clipping_range(0.01,10000000)
+    # camera_bev.set_focal_length(1.4)
+    # camera_bev.set_focus_distance(0.205)
+    camera_bev.set_clipping_range(0.0001,10000000)
     world.reset()
     camera_bev.initialize()
     camera_bev.add_motion_vectors_to_frame()
     camera_bev.add_distance_to_image_plane_to_frame()
     # for i in range(30):
     #     world.step(render=True)
-    camera_sample.set_focal_length(1.4)
+    camera_sample.set_focal_length(1)
     camera_sample.set_clipping_range(0.001, 10000000)
     camera_sample.initialize()
     camera_sample.add_distance_to_image_plane_to_frame()
@@ -199,7 +204,10 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
         floor_y_center = (floor_y_max + floor_y_min) / 2
         floor_width = floor_x_max - floor_x_min
         floor_height = floor_y_max - floor_y_min
+        light_scale = max(floor_width, floor_height) / meters_per_unit * 2
         
+
+
         # BEV camera setting
         camera_bev.set_projection_mode("orthographic")
         scale = 1.0
@@ -211,9 +219,25 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
         bev_camera_rotation = [0, 0, 0]
         bev_camera_extrinsic = build_transformation_mat(bev_camera_translation, bev_camera_rotation)
         bev_camera_pos = bev_camera_extrinsic[0:3,3]/meters_per_unit
+        if bev_camera_pos[2] != camera_height * 1000:
+            bev_camera_pos[2] = ceil(bev_camera_pos[2])
+        print(bev_camera_pos)
+        light_pos = np.array([bev_camera_extrinsic[0,3], bev_camera_extrinsic[1,3], bev_camera_extrinsic[2,3] - 0.3]) / meters_per_unit
+        print(light_pos)
+        print(light_scale)
         bev_camera_rot = bev_camera_extrinsic[0:3,0:3]
         camera_bev.set_world_pose(bev_camera_pos)
-        for i in range(15):
+        # BEV light setting
+        light_path = "/World/light"
+        create_prim(
+            prim_path=light_path,
+            prim_type="RectLight",
+            position=light_pos,
+            orientation=rot_utils.euler_angles_to_quats(np.array([0.0, 0.0, 0.0]), degrees=True),
+            attributes={"inputs:width": light_scale, "inputs:height": light_scale, "inputs:intensity": 2000}
+        )
+
+        for i in range(60):
             world.step(render=True)
 
         rgb_bev = cv2.cvtColor(camera_bev.get_rgba()[:,:,:3],cv2.COLOR_BGR2RGB)
@@ -221,17 +245,18 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
         os.makedirs("%s/%s/"%(output_path, house_id), exist_ok=False)
         os.makedirs("%s/%s/bevmap/"%(output_path, house_id), exist_ok=False)
         cv2.imwrite(os.path.join(output_path, house_id, 'bevmap/', f"bev_map_{floor_index}.jpg"), rgb_bev)
-        o3d.io.write_point_cloud(os.path.join(output_path, house_id, "bevmap", f"bevmap_{floor_index}.ply"), floor_pcd)
+        # o3d.io.write_point_cloud(os.path.join(output_path, house_id, "bevmap", f"bevmap_{floor_index}.ply"), floor_pcd)
 
+        # delete_prim(light_path)
 
         # sample camera setting
         # turn on the camera light
-        action_registry = omni.kit.actions.core.get_action_registry()
-        action = action_registry.get_action("omni.kit.viewport.menubar.lighting", "set_lighting_mode_stage")
-        action.execute()
+        # action_registry = omni.kit.actions.core.get_action_registry()
+        # action = action_registry.get_action("omni.kit.viewport.menubar.lighting", "set_lighting_mode_stage")
+        # action.execute()
 
-        omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/enabled', value=True)
-        omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/whiteScale', value=4.5)
+        # omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/enabled', value=True)
+        # omni.kit.commands.execute('ChangeSetting', path='/rtx/post/histogram/whiteScale', value=4.5)
 
         # sample camera position
         downsampled_floor_pcd = floor_pcd.voxel_down_sample(2)
@@ -265,14 +290,14 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
             # orient = compute_camera_quaternion(target_points[idx], render_point)
             # print(target_points[idx], render_point)
                 camera_sample.set_world_pose(camera_pos, rot_utils.euler_angles_to_quats(camera_rotation))
-                for i in range(12):
+                for i in range(30):
                     world.step(render=True)
                 render_rgb = cv2.cvtColor(camera_sample.get_rgba()[:,:,:3], cv2.COLOR_BGR2RGB)
                 cv2.imwrite(os.path.join(output_path, house_id, f"regions/sample_{idx}/render_{rot_idx}.jpg"), render_rgb)
         save_dict = {"sample_points": sample_points, "bev_camera_translation": bev_camera_translation.tolist()}
         json_object = json.dumps(save_dict, indent=4)
         with open("%s/%s/camera_info_%d.json"%(output_path, house_id, floor_index), "w") as outfile:
-                outfile.write(json_object)
+            outfile.write(json_object)
         # delete_prim("/World/scene")
 
 
