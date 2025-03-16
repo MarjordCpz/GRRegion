@@ -3,11 +3,11 @@
 #SBATCH --partition=gpu_4090  
 #SBATCH --nodes=1             
 #SBATCH --gres=gpu:2          
-#SBATCH --cpus-per-task=12     
+#SBATCH --cpus-per-task=12  
 #SBATCH --time=14-00:00:00    
 #SBATCH --array=0-3
-#SBATCH --output=/ailab/user/caopeizhou/projects/GRRegion/logs/one_scene_render/119/%j.out       
-#SBATCH --error=/ailab/user/caopeizhou/projects/GRRegion/logs/one_scene_render/119/%j.err 
+#SBATCH --output=/ailab/user/caopeizhou/projects/GRRegion/logs/one_scene_render/110_119/%j.out       
+#SBATCH --error=/ailab/user/caopeizhou/projects/GRRegion/logs/one_scene_render/110_119/%j.err 
 
 
 if [ $# -ne 2 ]; then
@@ -23,6 +23,9 @@ task_id=$SLURM_ARRAY_TASK_ID
 start_id=$((task_id*25))
 end_id=$(((task_id+1)*25))
 
+# start_id=52
+# end_id=75
+
 echo ${start_id}
 echo ${end_id}
 
@@ -33,3 +36,4 @@ for ((i = start_id; i < end_id; i += 1)); do
         --usd_folder $usd_fodler
     wait
 done
+
