@@ -187,9 +187,10 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
     camera_sample.add_distance_to_image_plane_to_frame()
 
     camera_height = 1.8
-    for floor_index, current_floor in enumerate(floor_heights):
+    os.makedirs("%s/%s/"%(output_path, house_id), exist_ok=False)
+    for floor_index, floor in enumerate(floor_heights):
 
-        current_floor = current_floor[0]
+        current_floor = floor[0]
         current_floor = fix_floorheight(current_floor, prims_all, meters_per_unit)
         floor_upper_bound = current_floor + 0.1
         floor_lower_bound = current_floor - 0.1
@@ -242,9 +243,9 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
 
         rgb_bev = cv2.cvtColor(camera_bev.get_rgba()[:,:,:3],cv2.COLOR_BGR2RGB)
         
-        os.makedirs("%s/%s/"%(output_path, house_id), exist_ok=False)
-        os.makedirs("%s/%s/bevmap/"%(output_path, house_id), exist_ok=False)
-        cv2.imwrite(os.path.join(output_path, house_id, 'bevmap/', f"bev_map_{floor_index}.jpg"), rgb_bev)
+        
+        os.makedirs("%s/%s/bevmap_%d/"%(output_path, house_id, floor_index), exist_ok=False)
+        cv2.imwrite(os.path.join(output_path, house_id, f'bevmap_{floor_index}/', f"bev_map.jpg"), rgb_bev)
         # o3d.io.write_point_cloud(os.path.join(output_path, house_id, "bevmap", f"bevmap_{floor_index}.ply"), floor_pcd)
 
         # delete_prim(light_path)
@@ -278,10 +279,10 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
             camera_euler_angles[0],camera_euler_angles[1],camera_euler_angles[2] = camera_euler_angles[1],np.clip((np.pi/2 - camera_euler_angles[0])/2.0,0,np.pi/8),camera_euler_angles[2]+np.pi/2
             camera_rotations.append(camera_euler_angles)
 
-        os.makedirs("%s/%s/regions/"%(output_path, house_id), exist_ok=True)
+        os.makedirs("%s/%s/regions_%d/"%(output_path, house_id, floor_index), exist_ok=True)
         sample_points = []
         for idx, render_point in enumerate(render_sample_points):
-            os.makedirs("%s/%s/regions/sample_%d"%(output_path, house_id, idx), exist_ok=False)
+            os.makedirs("%s/%s/regions_%d/sample_%d"%(output_path, house_id, floor_index, idx), exist_ok=False)
             print(f"sample idx {idx}")
             sample_points.append(render_point.tolist())
             camera_pos = render_point / meters_per_unit
@@ -293,11 +294,11 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
                 for i in range(30):
                     world.step(render=True)
                 render_rgb = cv2.cvtColor(camera_sample.get_rgba()[:,:,:3], cv2.COLOR_BGR2RGB)
-                cv2.imwrite(os.path.join(output_path, house_id, f"regions/sample_{idx}/render_{rot_idx}.jpg"), render_rgb)
-        save_dict = {"sample_points": sample_points, "bev_camera_translation": bev_camera_translation.tolist()}
+                cv2.imwrite(os.path.join(output_path, house_id, f"regions_{floor_index}/sample_{idx}/render_{rot_idx}.jpg"), render_rgb)
+        save_dict = {"floor_height":current_floor, "sample_points": sample_points, "bev_camera_translation": bev_camera_translation.tolist()}
         json_object = json.dumps(save_dict, indent=4)
         with open("%s/%s/camera_info_%d.json"%(output_path, house_id, floor_index), "w") as outfile:
             outfile.write(json_object)
-        # delete_prim("/World/scene")
+        delete_prim("/World/light")
 
 
