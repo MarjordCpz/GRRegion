@@ -265,7 +265,7 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
         camera_rotations = []
         delta = 45.0 
         iter_number = 360.0 / delta
-        base_rotation = np.array([45.0, 0.0, 0.0])
+        base_rotation = np.array([25.0, 0.0, 0.0])
         for i in range(int(iter_number)):
             rotation = base_rotation.copy()
             rotation[2] = base_rotation[2] + i * delta
