@@ -295,7 +295,7 @@ if not os.path.exists("%s/%s"%(output_path, house_id)):
                     world.step(render=True)
                 render_rgb = cv2.cvtColor(camera_sample.get_rgba()[:,:,:3], cv2.COLOR_BGR2RGB)
                 cv2.imwrite(os.path.join(output_path, house_id, f"regions_{floor_index}/sample_{idx}/render_{rot_idx}.jpg"), render_rgb)
-        save_dict = {"floor_height":current_floor, "sample_points": sample_points, "bev_camera_translation": bev_camera_translation.tolist()}
+        save_dict = {"floor_height": floor, "sample_points": sample_points, "bev_camera_translation": bev_camera_translation.tolist()}
         json_object = json.dumps(save_dict, indent=4)
         with open("%s/%s/camera_info_%d.json"%(output_path, house_id, floor_index), "w") as outfile:
             outfile.write(json_object)
